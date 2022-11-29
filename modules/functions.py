@@ -9,6 +9,44 @@ sys.path.insert(0, '..')
 # Establishing the global variable .csv file of team IDs
 ids = pd.read_csv('csvs/ids.csv')
 
+# GLOBAL LISTS AND DICTIONARIES
+convert_dict = {'MIN':int,
+               'OREB':int,
+               'DREB':int,
+               'REB':int,
+               'AST':int,
+               'STL':int,
+               'BLK':int,
+               'TO':int,
+               'PF':int,
+               'PTS':int,
+               'FGM':int,
+               'FGA':int,
+               '3PM':int,
+               '3PA':int,
+               'FTM':int,
+               'FTA':int}
+
+col_order = ['Player',
+                 'PTS',
+                 'MIN',
+                 'FGM',
+                 'FGA',
+                 '3PM',
+                 '3PA',
+                 'FTM',
+                 'FTA',
+                 'OREB',
+                 'DREB',
+                 'REB',
+                 'AST',
+                 'STL',
+                 'BLK',
+                 'TO',
+                 'PF',
+                 'PTS/FGA',
+                 'Position']
+
 # Calculate possessions
 def calculate_possessions(fga,orebs,tos,fta):
     value = (fga-orebs) + tos + (0.475*fta)
@@ -46,6 +84,47 @@ def get_schedule(team):
   df.OPPONENT = df.OPPONENT.str.replace('vs','')
   
   return df
+
+def clean_dataframe(input_df: pd.DataFrame) -> pd.DataFrame:
+ 
+
+    # Creatimg a copy of the DataFrame and adding the stats which I track
+    df = input_df.copy()
+    df['FGM'] = [i[0] for i in df.FG.str.split('-')]
+    df['FGA'] = [i[1] for i in df.FG.str.split('-')]
+    df['3PM'] = [i[0] for i in df['3PT'].str.split('-')]
+    df['3PA'] = [i[1] for i in df['3PT'].str.split('-')]
+    df['FTM'] = [i[0] for i in df.FT.str.split('-')]
+    df['FTA'] = [i[1] for i in df.FT.str.split('-')]
+
+    # Filling empty minutes with zeroes.  They show up in different data formats
+    if type(df.MIN[0]) == str:
+        df.MIN = 0
+
+    # Converting datatypes before calculations
+    df = df.astype(convert_dict)
+    df['PTS/FGA'] = round((df.PTS/df.FGA),2).fillna(0)
+    # Adding a summary row
+    df = df.append(df.sum(numeric_only = True),ignore_index = True)
+
+    # Manually creating a new row
+    # Assigning 'team' to the player and "" to the position.  This is where the aggregates will live
+    last_row = len(df) - 1
+    df = df[col_order]
+    df.iloc[last_row,0] = 'Team'
+    df.iloc[last_row,17] = ""
+
+    # Converting to integer where possible
+    for col in df.columns:
+        try:
+            df[col] = df[col].astype(int)
+        except ValueError as e:
+            continue
+
+    # Every now and again, I'm left with residual NaNs, filling those
+    df = df.fillna("")
+
+    return df
 
 def create_home_and_away_simple_dataframe(game_id:int,
                                           disp: bool = False) -> tuple:
@@ -97,19 +176,15 @@ def create_home_and_away_simple_dataframe(game_id:int,
     home_stats = home_stats.iloc[:len(home_stats)-1,]
     away_stats = away_stats.iloc[:len(away_stats)-1,]
 
-    # Manually creating a new row
-    # Assigning 'team' to the player and "" to the position.  This is where the aggregates will live
-    home_players.loc[len(home_players)+2,'Player'] = "Team"
-    home_players.loc[len(home_players)+2,'Position'] = ""
-
-    away_players.loc[len(away_players)+2,'Player'] = "Team"
-    away_players.loc[len(away_players)+2,'Position'] = ""
-
     # Merge the players and stats togther
     home_df = home_players.join(home_stats).iloc[:-1].fillna("")
     away_df = away_players.join(away_stats).iloc[:-1].fillna("")
+    
+    # Clean up/add aggregate stats
+    away_df = clean_dataframe(away_df)
+    home_df = clean_dataframe(home_df)
 
-     #Create outer index
+    #Create outer index
     away_df = pd.concat({away_team:away_df})
     home_df = pd.concat({home_team:home_df})
 
