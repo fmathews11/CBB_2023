@@ -2,6 +2,7 @@ import pandas as pd,numpy as np, warnings,seaborn as sns, matplotlib.pyplot as p
 from bs4 import BeautifulSoup
 import sys 
 import warnings
+from IPython.display import display
 warnings.filterwarnings('ignore')
 sys.path.insert(0, '..')
 
@@ -113,7 +114,7 @@ def create_home_and_away_simple_dataframe(game_id:int,
     home_df = pd.concat({home_team:home_df})
 
     if disp:
-
+        display(away_df,home_df)
         return
 
     return home_df,away_df
