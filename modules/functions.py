@@ -2,6 +2,7 @@ import pandas as pd,numpy as np, warnings,seaborn as sns, matplotlib.pyplot as p
 from bs4 import BeautifulSoup
 import sys 
 import warnings
+import time
 from IPython.display import display
 warnings.filterwarnings('ignore')
 sys.path.insert(0, '..')
@@ -10,8 +11,7 @@ sys.path.insert(0, '..')
 ids = pd.read_csv('csvs/ids.csv')
 
 # GLOBAL LISTS AND DICTIONARIES
-convert_dict = {'MIN':int,
-               'OREB':int,
+convert_dict = {'OREB':int,
                'DREB':int,
                'REB':int,
                'AST':int,
@@ -29,7 +29,6 @@ convert_dict = {'MIN':int,
 
 col_order = ['Player',
                  'PTS',
-                 'MIN',
                  'FGM',
                  'FGA',
                  '3PM',
@@ -98,8 +97,8 @@ def clean_dataframe(input_df: pd.DataFrame) -> pd.DataFrame:
     df['FTA'] = [i[1] for i in df.FT.str.split('-')]
 
     # Filling empty minutes with zeroes.  They show up in different data formats
-    if type(df.MIN[0]) == str:
-        df.MIN = 0
+    #if type(df.MIN[0]) == str:
+        #df.MIN = 0
 
     # Converting datatypes before calculations
     df = df.astype(convert_dict)
@@ -116,10 +115,13 @@ def clean_dataframe(input_df: pd.DataFrame) -> pd.DataFrame:
 
     # Converting to integer where possible
     for col in df.columns:
-        try:
-            df[col] = df[col].astype(int)
-        except ValueError as e:
-            continue
+
+        if col != "PTS/FGA":
+            
+            try:
+                df[col] = df[col].astype(int)
+            except ValueError as e:
+                continue
 
     # Every now and again, I'm left with residual NaNs, filling those
     df = df.fillna("")
@@ -151,11 +153,11 @@ def create_home_and_away_simple_dataframe(game_id:int,
     away_players.columns,home_players.columns = ['Player'],['Player']
 
     # Remove entries we don't need
-    away_players = away_players.iloc[1:len(away_players)-1,]
+    away_players = away_players.iloc[1:len(away_players),]
     away_players = away_players.loc[away_players.Player != "bench"]
 
     # Remove entries we don't need
-    home_players = home_players.iloc[1:len(home_players)-1,]
+    home_players = home_players.iloc[1:len(home_players),]
     home_players = home_players.loc[home_players.Player != "bench"]
     # Grabbing the last letter from the player column and isolating it into it's own column
     # This becomes the position (G,F,C)
@@ -169,8 +171,8 @@ def create_home_and_away_simple_dataframe(game_id:int,
     home_stats.columns = home_stats.iloc[0,:].tolist()
 
     # Removing column break headers
-    home_stats = home_stats.loc[home_stats.MIN != "MIN"]
-    away_stats = away_stats.loc[away_stats.MIN != "MIN"]
+    home_stats = home_stats.loc[home_stats.FG != "FG"]
+    away_stats = away_stats.loc[away_stats.FG != "FG"]
 
     # Removing the last row as it's all null values
     home_stats = home_stats.iloc[:len(home_stats)-1,]
@@ -179,12 +181,11 @@ def create_home_and_away_simple_dataframe(game_id:int,
     # Merge the players and stats togther
     home_df = home_players.join(home_stats).iloc[:-1].fillna("")
     away_df = away_players.join(away_stats).iloc[:-1].fillna("")
-    
-    # Clean up/add aggregate stats
-    away_df = clean_dataframe(away_df)
-    home_df = clean_dataframe(home_df)
 
-    #Create outer index
+    home_df = clean_dataframe(home_df)
+    away_df = clean_dataframe(away_df)
+
+     #Create outer index
     away_df = pd.concat({away_team:away_df})
     home_df = pd.concat({home_team:home_df})
 
@@ -193,3 +194,186 @@ def create_home_and_away_simple_dataframe(game_id:int,
         return
 
     return home_df,away_df
+
+def get_agg_boxscore(game_id,disp = True):
+
+    # If we run this before the game has started, it throws a ValueError
+    try:
+        df_away,df_home = create_home_and_away_simple_dataframe(game_id)
+    except ValueError as e:
+        raise Exception("Game likely hasn't started, returned no data")
+
+    # Cleaning data
+    last_row = len(df_away)
+    df_away = df_away.iloc[last_row-1:]
+    df_away = df_away[["PTS",
+          "FGM",
+          "FGA",
+          "3PM",
+          "3PA",
+          "FTM",
+          "FTA",
+          "OREB",
+          "DREB",
+          "TO"]].reset_index().drop('level_1',1).rename(columns = {'level_0':'Team'}).set_index("Team")
+
+    last_row = len(df_home)
+    df_home = df_home.iloc[last_row-1:]
+    df_home = df_home[["PTS",
+          "FGM",
+          "FGA",
+          "3PM",
+          "3PA",
+          "FTM",
+          "FTA",
+          "OREB",
+          "DREB",
+          "TO"]].reset_index().drop('level_1',1).rename(columns = {'level_0':'Team'}).set_index("Team")
+
+    # Aggregating and calculating new fields
+    away_team_dreb = df_away.DREB.item()
+    home_team_dreb = df_home.DREB.item()
+    df_home['OR%'] = 0
+    df_away['OR%'] = 0
+    if df_home.OREB.item() >0:
+      df_home['OR%'] = 100*round(df_home.OREB.item()/(df_home.OREB.item() + away_team_dreb),2)
+    if df_away.OREB.item() >0:
+      df_away['OR%'] = 100*round(df_away.OREB.item()/(df_away.OREB.item() + home_team_dreb),2)
+    final_df = pd.concat([df_away,df_home])
+
+    final_df['POS'] = final_df.apply(lambda x: calculate_possessions(x.FGA,x.OREB,x.TO,x.FTA),axis = 1).astype(float).fillna(0)
+    final_df['PTS_POS'] = round(final_df.PTS / final_df.POS,2).fillna(0)
+    final_df['3PT%'] = 100*round(final_df['3PM'] / final_df['3PA'],2).fillna(0)
+    final_df['FG%'] = 100*round(final_df.FGM/final_df.FGA,2).fillna(0)
+    final_df["TS%"] = round(100*final_df.PTS/(2*(final_df.FGA + 0.475*final_df.FTA)),2).fillna(0)
+    final_df['TO%'] = round(100*(final_df.TO/final_df.POS),2).fillna(0)
+    final_df['POS'] = np.floor(final_df.POS).astype(int).fillna(0)
+    col_order = ['PTS',
+                'FGM',
+                'FGA',
+                '3PM',
+                '3PA',
+                'FTM',
+                'FTA',
+                'OREB',
+                'DREB',
+                'TO',
+                'POS',
+                'PTS_POS',
+                '3PT%',
+                'FG%',
+                'OR%',
+                'TS%',
+                'TO%']
+    final_df = final_df[col_order]
+
+    # If the user ONLY wants to display the dataframe
+    if disp:
+
+      display(final_df.rename_axis("").astype(object).transpose())
+
+    #Otherwise return the dataframe
+    return final_df.rename_axis("").astype(object).transpose()
+
+def get_game_timestamp_half(game_id):
+  """
+  Returns a tuple:
+    [0]: The current timestamp of the half currently being played
+    [1]: Which half is currently being played
+  """
+  url = "https://www.espn.com/mens-college-basketball/playbyplay/_/gameId/"
+  url = url + str(game_id)
+
+  half = 2
+  all_dfs = pd.read_html(url)
+  if np.isnan(all_dfs[0].iloc[0,2]):
+    half = 1
+  
+  target_df = df = pd.read_html(url)[1]
+  current_time = df.iloc[0,0]
+  return current_time,half
+
+
+def scrape_game_stats_real_time(game_id,max_retries = 14,glob = True,disp = True):
+  last_reported_timestamp = 0
+  retry_iter = 0
+  limbo_df = pd.DataFrame()
+
+  if glob:
+
+    global test_df
+    while True:
+
+      try:
+
+        timestamp,half = get_game_timestamp_half(game_id)
+      except ValueError as e:
+
+        raise Exception("Game hasn't started")
+
+      if timestamp != last_reported_timestamp:
+        last_reported_timestamp = timestamp
+        temp_df = get_agg_boxscore(game_id = game_id,disp = True)
+        temp_df['Half'] = half
+        temp_df['Timestamp'] = timestamp
+        test_df = pd.concat([test_df,temp_df])
+        test_df.to_csv("test_df.csv")
+        create_home_and_away_simple_dataframe(game_id,disp = True)
+        retry_iter = 0
+
+        if disp:
+          try:
+            plot_game_trends(test_df,half = half,color1 = 'black',color2 = 'red')
+          except:
+            pass
+
+        time.sleep(np.random.randint(10,20))
+      else:
+        retry_iter +=1
+        if retry_iter > max_retries:
+          break
+        print(f"Retry number {retry_iter} of {max_retries}")
+        time.sleep(np.random.randint(15,22))
+       
+      
+  
+  else:
+    while True:
+
+      try:
+        timestamp,half = get_game_timestamp_half(game_id)
+      except:
+        raise Exception("Game hasn't started")
+
+      if timestamp != last_reported_timestamp:
+        last_reported_timestamp = timestamp
+        temp_df = get_agg_boxscore(game_id = game_id,disp = True)
+        temp_df['Half'] = half
+        temp_df['Timestamp'] = timestamp
+        limbo_df = pd.concat([limbo_df,temp_df])
+        limbo_df.to_csv("limbo_df.csv")
+        create_home_and_away_simple_dataframe(game_id,disp = True)
+        time.sleep(np.random.randint(10,20))
+      else:
+        retry_iter +=1
+        if retry_iter == max_retries:
+          break
+        print(f"Retry number {retry_iter} of {max_retries}")
+        time.sleep(np.random.randint(20,25))
+    return limbo_df
+
+def plot_game_trends(test_df,half = 1,color1 = 'black',color2 = 'red'):
+  melted = test_df.reset_index()
+  for i in melted.columns.tolist()[:18]:
+    plt.figure(figsize = (14,8))
+    sns.lineplot(data = melted[melted.Half ==half].iloc[1:,:],
+                x = 'Timestamp',
+                y = i,
+                hue = 'Team',
+                palette = [color2,color1])
+    plt.title(f"{melted.Team.tolist()[0]} vs {melted.Team.tolist()[1]}: {i.replace('_',' ')}")
+    plt.ylabel(i.replace('_',' '))
+    plt.xlabel('Time Remaining, 2nd Half')
+    if half == 1:
+      plt.xlabel('Time Remaining, 1st Half')
+    plt.show();
