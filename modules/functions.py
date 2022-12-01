@@ -171,8 +171,19 @@ def create_home_and_away_simple_dataframe(game_id:int,
     home_stats.columns = home_stats.iloc[0,:].tolist()
 
     # Removing column break headers
-    home_stats = home_stats.loc[home_stats.FG != "FG"]
-    away_stats = away_stats.loc[away_stats.FG != "FG"]
+    if "FG" in home_stats.columns:
+
+      home_stats = home_stats.loc[home_stats.FG != "FG"]
+      away_stats = away_stats.loc[away_stats.FG != "FG"]
+
+    elif "MIN" in home_stats.columns:
+
+      home_stats = home_stats.loc[home_stats.MIN != "MIN"]
+      away_stats = away_stats.loc[away_stats.MIN != "MIN"]
+    
+    else:
+       print("Neither Column Exists")
+       return home_stats,away_stats
 
     # Removing the last row as it's all null values
     home_stats = home_stats.iloc[:len(home_stats)-1,]
