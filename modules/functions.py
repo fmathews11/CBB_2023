@@ -375,7 +375,7 @@ def scrape_game_stats_real_time(game_id,max_retries = 14,glob = True,disp = True
 
 def plot_game_trends(test_df,half = 1,color1 = 'black',color2 = 'red'):
   melted = test_df.reset_index()
-  for i in melted.columns.tolist()[:18]:
+  for i in melted.columns.tolist()[1:18]:
     plt.figure(figsize = (14,8))
     sns.lineplot(data = melted[melted.Half ==half].iloc[1:,:],
                 x = 'Timestamp',
