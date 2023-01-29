@@ -200,6 +200,10 @@ def create_home_and_away_simple_dataframe(game_id:int,
     away_df = pd.concat({away_team:away_df})
     home_df = pd.concat({home_team:home_df})
 
+    # Set the Team PTS/FGA to zero
+    home_df.loc[home_df.Player == "Team",'PTS/FGA'] = int(0)
+    away_df.loc[away_df.Player == "Team",'PTS/FGA'] = int(0)
+
     if disp:
         display(away_df,home_df)
         return
